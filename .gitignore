@@ -53,3 +53,6 @@ screenshots/
 data/users.db
 data/logs/
 data/config.json
+
+# Claude AI
+.claude/
