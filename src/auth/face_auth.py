@@ -9,19 +9,21 @@ import pickle
 class FaceAuthenticator:
     """Maneja la autenticación facial mediante embeddings de landmarks"""
 
-    def __init__(self, similarity_threshold: float = 0.85):
+    def __init__(self, similarity_threshold: float = 0.85, max_faces: int = 3):
         """
         Args:
             similarity_threshold: Umbral de similitud para considerar un match (0-1)
+            max_faces: Número máximo de rostros a detectar simultáneamente
         """
         self.similarity_threshold = similarity_threshold
+        self.max_faces = max_faces
         self.mp_face = mp.solutions.face_mesh
         self.face_mesh = None
 
     def initialize(self):
         """Inicializa el detector de rostros"""
         self.face_mesh = self.mp_face.FaceMesh(
-            max_num_faces=1,
+            max_num_faces=self.max_faces,
             refine_landmarks=True,
             min_detection_confidence=0.7,
             min_tracking_confidence=0.7
@@ -93,6 +95,52 @@ class FaceAuthenticator:
 
         is_match = similarity >= self.similarity_threshold
         return is_match, similarity
+
+    def verify_face_multi(self, frame: np.ndarray, registered_embedding: bytes) -> Tuple[bool, float, int]:
+        """
+        Verifica si algún rostro en el frame coincide con el embedding registrado.
+        Detecta múltiples rostros y retorna el mejor match.
+
+        Args:
+            frame: Frame de la cámara
+            registered_embedding: Embedding facial registrado
+
+        Returns:
+            Tupla (es_match, mejor_score_similitud, num_rostros_detectados)
+        """
+        if self.face_mesh is None:
+            self.initialize()
+
+        rgb = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+        results = self.face_mesh.process(rgb)
+
+        if not results.multi_face_landmarks:
+            return False, 0.0, 0
+
+        num_faces = len(results.multi_face_landmarks)
+        registered = pickle.loads(registered_embedding)
+        
+        best_similarity = 0.0
+        is_match = False
+
+        # Revisar cada rostro detectado
+        for face_landmarks in results.multi_face_landmarks:
+            # Crear embedding para este rostro
+            embedding = []
+            for lm in face_landmarks.landmark:
+                embedding.extend([lm.x, lm.y, lm.z])
+            
+            embedding_array = np.array(embedding, dtype=np.float32)
+            embedding_array = self._normalize_embedding(embedding_array)
+
+            # Calcular similitud
+            similarity = self._cosine_similarity(embedding_array, registered)
+            
+            if similarity > best_similarity:
+                best_similarity = similarity
+
+        is_match = best_similarity >= self.similarity_threshold
+        return is_match, best_similarity, num_faces
 
     def _cosine_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
         """Calcula la similitud coseno entre dos embeddings"""

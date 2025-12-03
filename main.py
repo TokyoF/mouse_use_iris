@@ -100,15 +100,16 @@ class GazeControlApp:
             return False
 
     def register_user_if_needed(self) -> bool:
-        """Registra un usuario si no existe"""
+        """Verifica si hay usuarios o permite registrar uno nuevo"""
         if self.user_manager.has_registered_user():
-            self.logger.info("Usuario ya registrado")
+            self.logger.info("Ya hay usuarios registrados")
             return True
 
-        self.logger.info("No hay usuario registrado. Iniciando proceso de registro...")
+        self.logger.info("No hay usuarios registrados. Iniciando proceso de registro...")
         print("\n" + "=" * 60)
-        print("REGISTRO DE USUARIO")
+        print("PRIMER REGISTRO DE USUARIO")
         print("=" * 60)
+        print("No hay usuarios en el sistema. Registra al primer usuario.")
 
         username = input("Ingresa tu nombre de usuario: ").strip()
         if not username:
@@ -132,12 +133,48 @@ class GazeControlApp:
             return False
 
     def authenticate_user(self) -> bool:
-        """Autentica al usuario con la cámara"""
+        """Autentica al usuario con la cámara - ahora con selección de usuario"""
         self.logger.info("Iniciando autenticación...")
+        
+        # Verificar si hay usuarios registrados
+        users = self.user_manager.get_all_users()
+        if not users:
+            print("\n✗ No hay usuarios registrados")
+            return False
+        
+        # Si hay múltiples usuarios, mostrar menú de selección
+        if len(users) > 1:
+            print("\n" + "=" * 60)
+            print("SELECCIÓN DE USUARIO")
+            print("=" * 60)
+            for i, user in enumerate(users, 1):
+                print(f"{i}. {user['username']}")
+            print("=" * 60)
+            
+            try:
+                choice = input("\nSelecciona tu usuario (número): ").strip()
+                idx = int(choice) - 1
+                
+                if idx < 0 or idx >= len(users):
+                    print("\n✗ Opción inválida")
+                    return False
+                
+                selected_user_id = users[idx]['id']
+                selected_username = users[idx]['username']
+            except (ValueError, IndexError):
+                print("\n✗ Entrada inválida")
+                return False
+        else:
+            # Un solo usuario
+            selected_user_id = users[0]['id']
+            selected_username = users[0]['username']
+        
+        # Autenticar con reconocimiento facial
         print("\n" + "=" * 60)
-        print("AUTENTICACIÓN")
+        print("AUTENTICACIÓN FACIAL")
         print("=" * 60)
-        print("Por favor, mira a la cámara para autenticarte...")
+        print(f"Verificando identidad de: {selected_username}")
+        print("Por favor, mira a la cámara...")
 
         max_attempts = 30  # 30 frames = ~1-2 segundos
         attempts = 0
@@ -151,14 +188,14 @@ class GazeControlApp:
 
             # Mostrar feedback
             cv.putText(
-                frame, "Autenticando... Mira a la camara",
+                frame, f"Autenticando {selected_username}...",
                 (10, 30), cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2
             )
             cv.imshow("Autenticacion", frame)
             cv.waitKey(1)
 
-            # Intentar login
-            if self.user_manager.login(frame):
+            # Intentar login con el usuario seleccionado
+            if self.user_manager.login(frame, user_id=selected_user_id):
                 cv.destroyWindow("Autenticacion")
                 user = self.user_manager.get_current_user()
                 print(f"\n✓ Autenticación exitosa! Bienvenido {user['username']}")
@@ -169,7 +206,7 @@ class GazeControlApp:
             attempts += 1
 
         cv.destroyWindow("Autenticacion")
-        print("\n✗ Autenticación fallida")
+        print("\n✗ Autenticación fallida - Rostro no reconocido")
         self.logger.warning("Autenticación fallida")
         return False
 
@@ -282,24 +319,31 @@ class GazeControlApp:
                 # Verificar autenticación periódicamente
                 current_time = time.time()
                 if current_time - self.last_auth_check > self.auth_check_interval:
-                    is_match, similarity = self.user_manager.authenticate_user(frame)
+                    is_match, similarity, num_faces = self.user_manager.authenticate_user(frame)
                     self.window.update_auth_status(is_match, similarity)
 
                     if not is_match:
-                        self.window.draw_warning(frame, "USUARIO NO RECONOCIDO")
+                        # Usuario no reconocido - BLOQUEAR TODO CONTROL
+                        warning_msg = "USUARIO NO RECONOCIDO - CONTROL BLOQUEADO"
+                        if num_faces > 1:
+                            warning_msg = f"MULTIPLES ROSTROS DETECTADOS ({num_faces}) - CONTROL BLOQUEADO"
+                        elif num_faces == 0:
+                            warning_msg = "NO SE DETECTA ROSTRO"
+                        
+                        self.window.draw_warning(frame, warning_msg)
                         self.window.show_frame(frame)
                         self.window.wait_key(1)
                         continue
 
                     self.last_auth_check = current_time
 
-                # Procesar seguimiento de mirada
+                # Procesar seguimiento de mirada SOLO si el usuario está autenticado
                 screen_pos = self.gaze_tracker.process_frame(frame)
 
                 if screen_pos:
                     screen_x, screen_y = screen_pos
 
-                    # Mover mouse
+                    # Mover mouse SOLO si usuario autenticado
                     self.mouse_controller.move_to(screen_x, screen_y)
 
                     # Detectar gestos

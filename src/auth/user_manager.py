@@ -11,7 +11,7 @@ class UserManager:
 
     def __init__(self, db_manager: DatabaseManager):
         self.db = db_manager
-        self.face_auth = FaceAuthenticator(similarity_threshold=0.85)
+        self.face_auth = FaceAuthenticator(similarity_threshold=0.85, max_faces=3)
         self.current_user: Optional[Dict[str, Any]] = None
         self.current_session_id: Optional[int] = None
 
@@ -19,6 +19,10 @@ class UserManager:
         """Verifica si ya hay un usuario registrado"""
         user = self.db.get_registered_user()
         return user is not None
+
+    def get_all_users(self):
+        """Obtiene todos los usuarios registrados"""
+        return self.db.get_all_users()
 
     def register_new_user(self, username: str, cap: cv.VideoCapture, num_samples: int = 10) -> bool:
         """
@@ -32,8 +36,6 @@ class UserManager:
         Returns:
             True si el registro fue exitoso
         """
-        if self.has_registered_user():
-            raise ValueError("Ya existe un usuario registrado. Elimínalo primero.")
 
         self.face_auth.initialize()
         frames_captured = []
@@ -105,48 +107,97 @@ class UserManager:
             print(f"Error al registrar usuario: {e}")
             return False
 
-    def authenticate_user(self, frame) -> tuple[bool, float]:
+    def authenticate_user(self, frame) -> tuple[bool, float, int]:
         """
-        Autentica al usuario con el frame actual
+        Autentica al usuario logueado verificando entre múltiples rostros
 
         Returns:
-            Tupla (autenticado, score_similitud)
+            Tupla (autenticado, score_similitud, num_rostros_detectados)
         """
-        user = self.db.get_registered_user()
+        # Obtener usuario logueado actualmente
+        user = self.db.get_logged_in_user()
         if not user:
-            return False, 0.0
+            return False, 0.0, 0
 
         self.face_auth.initialize()
-        is_match, similarity = self.face_auth.verify_face(frame, user['face_embedding'])
+        is_match, similarity, num_faces = self.face_auth.verify_face_multi(
+            frame, user['face_embedding']
+        )
 
-        return is_match, similarity
+        return is_match, similarity, num_faces
 
-    def login(self, frame) -> bool:
+    def login(self, frame, user_id: Optional[int] = None) -> bool:
         """
-        Realiza el login del usuario verificando su rostro
+        Realiza el login de un usuario verificando su rostro
+
+        Args:
+            frame: Frame de la cámara
+            user_id: ID del usuario a loguear (si es None, intenta con el primer usuario registrado)
 
         Returns:
             True si el login fue exitoso
         """
-        user = self.db.get_registered_user()
+        if user_id:
+            user = self.db.get_user_by_id(user_id)
+        else:
+            user = self.db.get_registered_user()
+        
         if not user:
             return False
 
-        is_match, similarity = self.authenticate_user(frame)
+        self.face_auth.initialize()
+        is_match, similarity, _ = self.face_auth.verify_face_multi(frame, user['face_embedding'])
 
         if is_match:
             self.current_user = user
-            self.db.update_last_login(user['id'])
+            self.db.set_user_logged_in(user['id'])
             self.current_session_id = self.db.start_session(user['id'])
             print(f"Login exitoso: {user['username']} (similitud: {similarity:.2%})")
             return True
 
         return False
 
+    def select_and_login(self, frame) -> bool:
+        """
+        Muestra lista de usuarios y permite login con reconocimiento facial
+
+        Returns:
+            True si el login fue exitoso
+        """
+        users = self.db.get_all_users()
+        if not users:
+            print("No hay usuarios registrados")
+            return False
+
+        print("\n" + "=" * 60)
+        print("USUARIOS REGISTRADOS")
+        print("=" * 60)
+        for i, user in enumerate(users, 1):
+            print(f"{i}. {user['username']}")
+        print("=" * 60)
+
+        try:
+            choice = input("\nSelecciona el número de usuario para login: ").strip()
+            idx = int(choice) - 1
+            
+            if 0 <= idx < len(users):
+                selected_user = users[idx]
+                print(f"\nVerificando identidad de '{selected_user['username']}'...")
+                print("Mira a la cámara...")
+                
+                return self.login(frame, user_id=selected_user['id'])
+            else:
+                print("Opción inválida")
+                return False
+        except (ValueError, IndexError):
+            print("Entrada inválida")
+            return False
+
     def logout(self):
         """Cierra la sesión actual"""
         if self.current_session_id:
             self.db.end_session(self.current_session_id)
+        self.db.logout_all_users()
         self.current_user = None
         self.current_session_id = None
         self.face_auth.close()

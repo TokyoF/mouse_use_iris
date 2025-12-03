@@ -31,7 +31,8 @@ class DatabaseManager:
                 face_embedding BLOB NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 last_login TIMESTAMP,
-                is_active INTEGER DEFAULT 1
+                is_active INTEGER DEFAULT 1,
+                is_logged_in INTEGER DEFAULT 0
             )
         """)
 
@@ -90,7 +91,7 @@ class DatabaseManager:
             raise ValueError(f"El usuario '{username}' ya existe")
 
     def get_registered_user(self) -> Optional[Dict[str, Any]]:
-        """Obtiene el usuario registrado activo (solo debe haber uno)"""
+        """Obtiene el primer usuario registrado activo (compatibilidad hacia atrás)"""
         cursor = self.conn.cursor()
         cursor.execute(
             "SELECT id, username, face_embedding, created_at FROM users WHERE is_active = 1 LIMIT 1"
@@ -104,6 +105,73 @@ class DatabaseManager:
                 'created_at': row['created_at']
             }
         return None
+
+    def get_all_users(self) -> List[Dict[str, Any]]:
+        """Obtiene todos los usuarios registrados y activos"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT id, username, created_at, last_login FROM users WHERE is_active = 1 ORDER BY username"
+        )
+        users = []
+        for row in cursor.fetchall():
+            users.append({
+                'id': row['id'],
+                'username': row['username'],
+                'created_at': row['created_at'],
+                'last_login': row['last_login']
+            })
+        return users
+
+    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Obtiene un usuario por su ID"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT id, username, face_embedding, created_at FROM users WHERE id = ? AND is_active = 1",
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                'id': row['id'],
+                'username': row['username'],
+                'face_embedding': row['face_embedding'],
+                'created_at': row['created_at']
+            }
+        return None
+
+    def get_logged_in_user(self) -> Optional[Dict[str, Any]]:
+        """Obtiene el usuario actualmente logueado"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT id, username, face_embedding, created_at FROM users WHERE is_logged_in = 1 LIMIT 1"
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                'id': row['id'],
+                'username': row['username'],
+                'face_embedding': row['face_embedding'],
+                'created_at': row['created_at']
+            }
+        return None
+
+    def set_user_logged_in(self, user_id: int):
+        """Marca un usuario como logueado (solo uno a la vez)"""
+        cursor = self.conn.cursor()
+        # Primero desloguear a todos
+        cursor.execute("UPDATE users SET is_logged_in = 0")
+        # Luego loguear al usuario específico
+        cursor.execute(
+            "UPDATE users SET is_logged_in = 1, last_login = CURRENT_TIMESTAMP WHERE id = ?",
+            (user_id,)
+        )
+        self.conn.commit()
+
+    def logout_all_users(self):
+        """Desloguea a todos los usuarios"""
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE users SET is_logged_in = 0")
+        self.conn.commit()
 
     def update_last_login(self, user_id: int):
         """Actualiza el último login del usuario"""

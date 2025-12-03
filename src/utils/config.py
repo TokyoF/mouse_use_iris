@@ -7,11 +7,43 @@ from typing import Any, Dict
 class Config:
     """Maneja la configuración de la aplicación"""
 
-    # Valores por defecto
+    # Perfiles de sensibilidad predefinidos
+    SENSITIVITY_PROFILES = {
+        'conservative': {
+            'gain': 1.0,
+            'deadzone': 0.020,
+            'filter_min_cutoff': 0.8,
+            'filter_beta': 0.03,
+            'description': 'Movimiento lento y suave, ideal para principiantes'
+        },
+        'balanced': {
+            'gain': 1.4,
+            'deadzone': 0.012,
+            'filter_min_cutoff': 1.5,
+            'filter_beta': 0.05,
+            'description': 'Balance entre precisión y velocidad'
+        },
+        'performance': {
+            'gain': 1.85,
+            'deadzone': 0.008,
+            'filter_min_cutoff': 2.0,
+            'filter_beta': 0.08,
+            'description': 'Alta velocidad, menor movimiento de cabeza requerido (por defecto)'
+        },
+        'extreme': {
+            'gain': 2.3,
+            'deadzone': 0.005,
+            'filter_min_cutoff': 2.5,
+            'filter_beta': 0.12,
+            'description': 'Máxima velocidad, requiere buen control'
+        }
+    }
+
+    # Valores por defecto (Perfil Performance)
     DEFAULTS = {
-        # Gaze tracking
-        'gain': 1.20,
-        'deadzone': 0.015,
+        # Gaze tracking - OPTIMIZADO PARA ALTA PERFORMANCE
+        'gain': 1.85,  # Aumentado de 1.20 → Mayor sensibilidad
+        'deadzone': 0.008,  # Reducido de 0.015 → Menor movimiento requerido
         'debug_mode': True,
 
         # Gestos
@@ -27,9 +59,9 @@ class Config:
         'scroll_band': 0.08,
         'scroll_step': 80,
 
-        # Filtros
-        'filter_min_cutoff': 1.2,
-        'filter_beta': 0.04,
+        # Filtros - OPTIMIZADO PARA RESPUESTA RÁPIDA
+        'filter_min_cutoff': 2.0,  # Aumentado de 1.2 → Más responsivo
+        'filter_beta': 0.08,  # Aumentado de 0.04 → Mejor respuesta a movimientos rápidos
 
         # Cámara
         'camera_index': 0,
@@ -97,3 +129,41 @@ class Config:
         """Resetea la configuración a valores por defecto"""
         self.config = self.DEFAULTS.copy()
         self.save()
+
+    def apply_sensitivity_profile(self, profile_name: str) -> bool:
+        """
+        Aplica un perfil de sensibilidad predefinido
+        
+        Args:
+            profile_name: Nombre del perfil ('conservative', 'balanced', 'performance', 'extreme')
+            
+        Returns:
+            True si el perfil existe y fue aplicado
+        """
+        if profile_name not in self.SENSITIVITY_PROFILES:
+            return False
+        
+        profile = self.SENSITIVITY_PROFILES[profile_name]
+        
+        # Aplicar parámetros del perfil
+        self.config['gain'] = profile['gain']
+        self.config['deadzone'] = profile['deadzone']
+        self.config['filter_min_cutoff'] = profile['filter_min_cutoff']
+        self.config['filter_beta'] = profile['filter_beta']
+        
+        self.save()
+        return True
+    
+    def list_sensitivity_profiles(self):
+        """Muestra todos los perfiles de sensibilidad disponibles"""
+        print("\n" + "=" * 60)
+        print("PERFILES DE SENSIBILIDAD DISPONIBLES")
+        print("=" * 60)
+        for name, profile in self.SENSITIVITY_PROFILES.items():
+            print(f"\n[{name.upper()}]")
+            print(f"  Descripción: {profile['description']}")
+            print(f"  Gain: {profile['gain']}")
+            print(f"  Deadzone: {profile['deadzone']}")
+            print(f"  Min Cutoff: {profile['filter_min_cutoff']}")
+            print(f"  Beta: {profile['filter_beta']}")
+        print("=" * 60)
