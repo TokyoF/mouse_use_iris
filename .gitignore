@@ -48,3 +48,8 @@ htmlcov/
 *.avi
 captures/
 screenshots/
+
+# Gaze Control v2.0 - Data files (sensitive user information)
+data/users.db
+data/logs/
+data/config.json
